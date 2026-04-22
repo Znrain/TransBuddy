@@ -1,0 +1,691 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TransBuddy - Interview Assistant</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg-alpha: 0.75;
+    --accent: #00d4ff;
+    --accent2: #ff6b6b;
+    --text: #f0f0f0;
+    --dim: #999;
+  }
+
+  body {
+    font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    background: transparent;
+    color: var(--text);
+    overflow: hidden;
+    user-select: none;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ===== DRAG BAR ===== */
+  #drag-bar {
+    -webkit-app-region: drag;
+    height: 28px;
+    background: rgba(0,0,0,0.6);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 10px;
+    font-size: 11px;
+    color: var(--dim);
+    flex-shrink: 0;
+  }
+  #drag-bar .controls { -webkit-app-region: no-drag; display: flex; gap: 6px; }
+  #drag-bar .controls button {
+    background: none; border: none; color: var(--dim); cursor: pointer;
+    font-size: 13px; padding: 2px 6px; border-radius: 3px;
+  }
+  #drag-bar .controls button:hover { color: #fff; background: rgba(255,255,255,0.1); }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 5px; }
+  .status-dot.on { background: #4caf50; box-shadow: 0 0 6px #4caf50; }
+  .status-dot.off { background: #666; }
+
+  /* ===== SETUP PANEL ===== */
+  #setup-panel {
+    background: rgba(20, 20, 30, 0.95);
+    padding: 20px;
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  #setup-panel h2 { font-size: 16px; color: var(--accent); }
+  #setup-panel label { font-size: 12px; color: var(--dim); display: block; margin-bottom: 4px; }
+  #setup-panel input, #setup-panel textarea, #setup-panel select {
+    width: 100%; padding: 8px 10px; border-radius: 5px;
+    border: 1px solid rgba(255,255,255,0.15); background: rgba(255,255,255,0.08);
+    color: #fff; font-size: 13px; font-family: inherit;
+  }
+  #setup-panel textarea { min-height: 120px; resize: vertical; }
+  #setup-panel .btn-start {
+    background: var(--accent); color: #000; border: none; padding: 10px 20px;
+    border-radius: 6px; font-size: 14px; font-weight: 600; cursor: pointer;
+    align-self: center; margin-top: 8px;
+  }
+  #setup-panel .btn-start:hover { filter: brightness(1.2); }
+
+  /* ===== MAIN OVERLAY ===== */
+  #main-overlay {
+    display: none;
+    flex: 1;
+    flex-direction: column;
+    height: calc(100vh - 28px);
+  }
+  #main-overlay.active { display: flex; }
+
+  /* TOP HALF: subtitles */
+  #subtitle-area {
+    flex: 1;
+    background: rgba(0, 0, 0, var(--bg-alpha));
+    padding: 10px 14px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+  }
+
+  .subtitle-line {
+    margin-bottom: 6px;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 14px;
+    line-height: 1.5;
+    animation: fadeIn 0.3s ease;
+  }
+  .subtitle-line .en { color: #fff; }
+  .subtitle-line .zh { color: #ffd700; font-size: 13px; margin-top: 2px; }
+  .subtitle-line.interim { opacity: 0.5; }
+  .subtitle-line .timestamp { color: var(--dim); font-size: 10px; margin-right: 6px; }
+
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+
+  /* BOTTOM HALF: AI answer */
+  #answer-area {
+    flex: 1;
+    background: rgba(0, 0, 10, var(--bg-alpha));
+    padding: 10px 14px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+  }
+
+  #answer-area .section-header {
+    font-size: 11px; color: var(--accent); text-transform: uppercase;
+    letter-spacing: 1px; margin-bottom: 6px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  #answer-area .section-header .ask-btn {
+    background: var(--accent2); color: #fff; border: none; padding: 3px 10px;
+    border-radius: 3px; font-size: 11px; cursor: pointer;
+  }
+
+  #ai-answer {
+    flex: 1;
+    overflow-y: auto;
+    font-size: 14px;
+    line-height: 1.7;
+    white-space: pre-wrap;
+  }
+
+  #ai-answer .answer-block { margin-bottom: 10px; }
+  #ai-answer .answer-block .q { color: var(--accent2); font-size: 12px; margin-bottom: 4px; }
+  #ai-answer .answer-block .a { color: #e0ffe0; }
+  #ai-answer .answer-block .a-zh { color: #ffd700; font-size: 13px; margin-top: 4px; }
+
+  .loading-dots::after {
+    content: ''; animation: dots 1.5s infinite;
+  }
+  @keyframes dots {
+    0% { content: '.'; }
+    33% { content: '..'; }
+    66% { content: '...'; }
+  }
+
+  /* BOTTOM BAR */
+  #bottom-bar {
+    height: 32px; background: rgba(0,0,0,0.7);
+    display: flex; align-items: center; padding: 0 10px;
+    font-size: 11px; color: var(--dim); gap: 10px; flex-shrink: 0;
+  }
+  #bottom-bar .opacity-ctrl {
+    display: flex; align-items: center; gap: 4px;
+  }
+  #bottom-bar input[type=range] {
+    width: 60px; height: 3px; accent-color: var(--accent);
+  }
+  #bottom-bar button {
+    background: none; border: 1px solid rgba(255,255,255,0.2);
+    color: var(--dim); cursor: pointer; font-size: 11px;
+    padding: 2px 8px; border-radius: 3px;
+  }
+  #bottom-bar button:hover { color: #fff; border-color: var(--accent); }
+  #bottom-bar button.active { color: var(--accent); border-color: var(--accent); }
+
+  /* hide scrollbars */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<!-- DRAG BAR -->
+<div id="drag-bar">
+  <div>
+    <span class="status-dot off" id="mic-dot"></span>
+    TransBuddy
+    <span id="status-text" style="margin-left:8px;">Setup</span>
+  </div>
+  <div class="controls">
+    <button onclick="toggleSetup()" title="Settings">⚙</button>
+    <button onclick="window.close()" title="Close">✕</button>
+  </div>
+</div>
+
+<!-- SETUP PANEL -->
+<div id="setup-panel">
+  <h2>⚡ TransBuddy Setup</h2>
+
+  <div>
+    <label>OpenAI API Key (for GPT-4o)</label>
+    <input type="password" id="api-key" placeholder="sk-..." />
+  </div>
+
+  <div>
+    <label>Translation Provider</label>
+    <select id="translate-provider">
+      <option value="gpt">GPT Translation (uses your API key)</option>
+      <option value="free">Free Translation (MyMemory API)</option>
+    </select>
+  </div>
+
+  <div>
+    <label>Your Background & Experience (中英文皆可 - GPT will use this to craft answers)</label>
+    <textarea id="user-background" placeholder="例如：
+我叫张三，5年全栈开发经验。
+- 上一份工作在ABC公司做Senior SDE，主导了微服务架构迁移项目，将monolith拆分为12个微服务，使用Java/Spring Boot + React
+- 负责过一个实时数据处理pipeline，使用Kafka + Flink，日处理量10亿条消息
+- 在XYZ公司做过ML平台，用Python/TensorFlow搭建模型训练pipeline
+- 擅长系统设计，熟悉分布式系统、缓存策略、数据库优化
+- 有AWS Solutions Architect认证
+
+Put as much detail as possible - projects, metrics, tech stack, achievements..."></textarea>
+  </div>
+
+  <div>
+    <label>Target Position (optional)</label>
+    <input type="text" id="target-position" placeholder="e.g., Senior Software Engineer at Google" />
+  </div>
+
+  <button class="btn-start" onclick="startSession()">🎤 Start Interview Mode</button>
+  <p style="font-size:11px;color:var(--dim);text-align:center;">
+    Shortcuts: Ctrl+Shift+T = hide/show | Ctrl+Shift+↑↓ = opacity<br>
+    Works best in Chrome/Edge (Web Speech API required)
+  </p>
+</div>
+
+<!-- MAIN OVERLAY -->
+<div id="main-overlay">
+  <!-- Top: Bilingual subtitles -->
+  <div id="subtitle-area">
+    <div style="color:var(--dim);font-size:12px;text-align:center;padding:20px;">
+      🎤 Listening... Speak or let the interviewer speak
+    </div>
+  </div>
+
+  <!-- Bottom: AI-generated answer -->
+  <div id="answer-area">
+    <div class="section-header">
+      <span>💡 AI Suggested Answer</span>
+      <button class="ask-btn" onclick="manualAsk()">Ask Now (use last sentence)</button>
+    </div>
+    <div id="ai-answer">
+      <div style="color:var(--dim);font-size:12px;">
+        Waiting for interviewer's question...
+      </div>
+    </div>
+  </div>
+
+  <!-- Bottom bar -->
+  <div id="bottom-bar">
+    <div class="opacity-ctrl">
+      <span>Opacity:</span>
+      <input type="range" min="20" max="100" value="75" oninput="setOpacity(this.value)">
+    </div>
+    <button id="btn-mic" onclick="toggleMic()" class="active">🎤 ON</button>
+    <button id="btn-auto" onclick="toggleAuto()" class="active">Auto-Answer: ON</button>
+    <button onclick="clearSubtitles()">Clear</button>
+    <span style="margin-left:auto;" id="time-display"></span>
+  </div>
+</div>
+
+<script>
+// ===== STATE =====
+let CONFIG = {
+  apiKey: '',
+  background: '',
+  position: '',
+  translateProvider: 'gpt'
+};
+let recognition = null;
+let isListening = false;
+let autoAnswer = true;
+let subtitleLines = [];
+let pendingQuestion = '';
+let questionTimer = null;
+let isProcessingAnswer = false;
+
+// ===== SETUP =====
+function loadSaved() {
+  try {
+    const saved = localStorage.getItem('transbuddy_config');
+    if (saved) {
+      const c = JSON.parse(saved);
+      document.getElementById('api-key').value = c.apiKey || '';
+      document.getElementById('user-background').value = c.background || '';
+      document.getElementById('target-position').value = c.position || '';
+      document.getElementById('translate-provider').value = c.translateProvider || 'gpt';
+    }
+  } catch(e) {}
+}
+loadSaved();
+
+function saveConfig() {
+  CONFIG.apiKey = document.getElementById('api-key').value.trim();
+  CONFIG.background = document.getElementById('user-background').value.trim();
+  CONFIG.position = document.getElementById('target-position').value.trim();
+  CONFIG.translateProvider = document.getElementById('translate-provider').value;
+  try {
+    localStorage.setItem('transbuddy_config', JSON.stringify(CONFIG));
+  } catch(e) {}
+}
+
+function toggleSetup() {
+  const setup = document.getElementById('setup-panel');
+  const main = document.getElementById('main-overlay');
+  if (setup.style.display === 'none') {
+    setup.style.display = 'flex';
+    main.classList.remove('active');
+    stopListening();
+  } else if (main.classList.contains('active')) {
+    setup.style.display = 'flex';
+    main.classList.remove('active');
+  } else {
+    startSession();
+  }
+}
+
+function startSession() {
+  saveConfig();
+  if (!CONFIG.apiKey) {
+    alert('Please enter your OpenAI API Key');
+    return;
+  }
+  document.getElementById('setup-panel').style.display = 'none';
+  document.getElementById('main-overlay').classList.add('active');
+  document.getElementById('status-text').textContent = 'Live';
+  startListening();
+}
+
+// ===== SPEECH RECOGNITION =====
+function startListening() {
+  if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+    alert('Speech Recognition not supported. Use Chrome or Edge.');
+    return;
+  }
+
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  recognition = new SpeechRecognition();
+  recognition.continuous = true;
+  recognition.interimResults = true;
+  recognition.lang = 'en-US';
+  recognition.maxAlternatives = 1;
+
+  recognition.onstart = () => {
+    isListening = true;
+    document.getElementById('mic-dot').className = 'status-dot on';
+    document.getElementById('btn-mic').classList.add('active');
+    document.getElementById('btn-mic').textContent = '🎤 ON';
+  };
+
+  recognition.onresult = (event) => {
+    let interimTranscript = '';
+    let finalTranscript = '';
+
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      const transcript = event.results[i][0].transcript;
+      if (event.results[i].isFinal) {
+        finalTranscript += transcript;
+      } else {
+        interimTranscript += transcript;
+      }
+    }
+
+    // Show interim
+    if (interimTranscript) {
+      showInterimSubtitle(interimTranscript);
+    }
+
+    // Process final
+    if (finalTranscript) {
+      processFinalTranscript(finalTranscript.trim());
+    }
+  };
+
+  recognition.onerror = (event) => {
+    console.error('Speech error:', event.error);
+    if (event.error === 'not-allowed') {
+      alert('Microphone permission denied. Please allow microphone access.');
+    }
+  };
+
+  recognition.onend = () => {
+    // Auto restart if still supposed to be listening
+    if (isListening) {
+      try { recognition.start(); } catch(e) {}
+    } else {
+      document.getElementById('mic-dot').className = 'status-dot off';
+      document.getElementById('btn-mic').classList.remove('active');
+      document.getElementById('btn-mic').textContent = '🎤 OFF';
+    }
+  };
+
+  try {
+    recognition.start();
+  } catch(e) {
+    console.error('Failed to start recognition:', e);
+  }
+}
+
+function stopListening() {
+  isListening = false;
+  if (recognition) {
+    try { recognition.stop(); } catch(e) {}
+  }
+}
+
+function toggleMic() {
+  if (isListening) {
+    stopListening();
+  } else {
+    startListening();
+  }
+}
+
+function toggleAuto() {
+  autoAnswer = !autoAnswer;
+  const btn = document.getElementById('btn-auto');
+  btn.textContent = autoAnswer ? 'Auto-Answer: ON' : 'Auto-Answer: OFF';
+  btn.classList.toggle('active', autoAnswer);
+}
+
+// ===== SUBTITLE DISPLAY =====
+function showInterimSubtitle(text) {
+  const area = document.getElementById('subtitle-area');
+  let interim = area.querySelector('.subtitle-line.interim');
+  if (!interim) {
+    interim = document.createElement('div');
+    interim.className = 'subtitle-line interim';
+    area.appendChild(interim);
+  }
+  interim.innerHTML = `<div class="en">${escapeHtml(text)}</div>`;
+  area.scrollTop = area.scrollHeight;
+}
+
+async function processFinalTranscript(text) {
+  if (!text || text.length < 2) return;
+
+  // Remove interim display
+  const area = document.getElementById('subtitle-area');
+  const interim = area.querySelector('.subtitle-line.interim');
+  if (interim) interim.remove();
+
+  // Translate
+  const zhText = await translateToZh(text);
+
+  // Add subtitle line
+  const now = new Date();
+  const ts = now.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+  const line = document.createElement('div');
+  line.className = 'subtitle-line';
+  line.innerHTML = `
+    <div class="en"><span class="timestamp">${ts}</span>${escapeHtml(text)}</div>
+    <div class="zh">${escapeHtml(zhText)}</div>
+  `;
+  area.appendChild(line);
+  area.scrollTop = area.scrollHeight;
+
+  // Keep max 50 lines
+  const lines = area.querySelectorAll('.subtitle-line:not(.interim)');
+  if (lines.length > 50) lines[0].remove();
+
+  // Auto-detect question and generate answer
+  if (autoAnswer) {
+    pendingQuestion = (pendingQuestion + ' ' + text).trim();
+
+    // Debounce: wait 2s of silence before sending to AI
+    clearTimeout(questionTimer);
+    questionTimer = setTimeout(() => {
+      if (pendingQuestion && isLikelyQuestion(pendingQuestion)) {
+        generateAnswer(pendingQuestion);
+        pendingQuestion = '';
+      }
+    }, 2000);
+  }
+}
+
+function isLikelyQuestion(text) {
+  // Simple heuristic: contains question words or ends with ?
+  const q = text.toLowerCase();
+  const questionPatterns = [
+    /\?/, /^(what|how|why|when|where|which|who|can you|could you|tell me|describe|explain|walk me|give me|have you|do you|did you|are you|is there|would you)/,
+    /experience with/, /familiar with/, /thoughts on/, /approach to/,
+    /tell us/, /share with/, /talk about/, /elaborate/
+  ];
+  // If text is long enough (>15 chars) and matches patterns, treat as question
+  return text.length > 15 && questionPatterns.some(p => p.test(q));
+}
+
+// ===== TRANSLATION =====
+async function translateToZh(text) {
+  if (CONFIG.translateProvider === 'gpt') {
+    return await translateWithGPT(text);
+  } else {
+    return await translateWithFree(text);
+  }
+}
+
+async function translateWithGPT(text) {
+  try {
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${CONFIG.apiKey}`
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: 'You are a translator. Translate the following English text to Chinese. Output ONLY the Chinese translation, nothing else.' },
+          { role: 'user', content: text }
+        ],
+        max_tokens: 500,
+        temperature: 0.3
+      })
+    });
+    const data = await res.json();
+    return data.choices?.[0]?.message?.content?.trim() || '(翻译失败)';
+  } catch(e) {
+    console.error('GPT translate error:', e);
+    return '(翻译失败)';
+  }
+}
+
+async function translateWithFree(text) {
+  try {
+    const res = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=en|zh-CN`);
+    const data = await res.json();
+    return data.responseData?.translatedText || '(翻译失败)';
+  } catch(e) {
+    return '(翻译失败)';
+  }
+}
+
+// ===== AI ANSWER GENERATION =====
+async function generateAnswer(question) {
+  if (isProcessingAnswer) return;
+  isProcessingAnswer = true;
+
+  const answerDiv = document.getElementById('ai-answer');
+
+  // Show loading
+  const loadingBlock = document.createElement('div');
+  loadingBlock.className = 'answer-block';
+  loadingBlock.innerHTML = `
+    <div class="q">Q: ${escapeHtml(question)}</div>
+    <div class="a" style="color:var(--dim);">Generating structured answer<span class="loading-dots"></span></div>
+  `;
+  answerDiv.prepend(loadingBlock);
+
+  try {
+    const systemPrompt = buildSystemPrompt();
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${CONFIG.apiKey}`
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: `The interviewer asked: "${question}"\n\nGenerate a structured answer I can read aloud. First in English (the answer I should speak), then a Chinese summary for my reference.` }
+        ],
+        max_tokens: 1500,
+        temperature: 0.7
+      })
+    });
+
+    const data = await res.json();
+    const answer = data.choices?.[0]?.message?.content?.trim() || 'Failed to generate answer.';
+
+    // Parse answer - split EN and ZH parts
+    const parts = parseAnswer(answer);
+
+    loadingBlock.innerHTML = `
+      <div class="q">Q: ${escapeHtml(question)}</div>
+      <div class="a">${formatAnswer(parts.en)}</div>
+      ${parts.zh ? `<div class="a-zh">📝 ${escapeHtml(parts.zh)}</div>` : ''}
+    `;
+  } catch(e) {
+    console.error('AI answer error:', e);
+    loadingBlock.innerHTML = `
+      <div class="q">Q: ${escapeHtml(question)}</div>
+      <div class="a" style="color:var(--accent2);">Error: ${escapeHtml(e.message)}</div>
+    `;
+  }
+
+  isProcessingAnswer = false;
+  answerDiv.scrollTop = 0;
+}
+
+function buildSystemPrompt() {
+  return `You are an expert interview coach. You know the candidate's background deeply and will generate structured, articulate answers they can read aloud during their interview.
+
+CANDIDATE BACKGROUND:
+${CONFIG.background}
+
+${CONFIG.position ? `TARGET POSITION: ${CONFIG.position}` : ''}
+
+RULES:
+1. Generate answers using the STAR method when applicable (Situation, Task, Action, Result)
+2. Use SPECIFIC details from the candidate's background - real project names, metrics, tech stack
+3. Keep answers concise but impactful (60-90 seconds when spoken, roughly 150-200 words)
+4. Structure with clear sections so the candidate can follow along easily
+5. Use natural, conversational English - not robotic
+6. After the English answer, add a brief Chinese summary (2-3 sentences) marked with 【中文摘要】
+
+FORMAT your English answer like:
+🎯 [One-line key point]
+
+[Main answer in 2-3 short paragraphs, structured and easy to read aloud]
+
+📊 [Key metric or impact to emphasize]
+
+【中文摘要】[Brief Chinese summary]`;
+}
+
+function parseAnswer(answer) {
+  const zhMatch = answer.match(/【中文摘要】([\s\S]*?)$/);
+  let en = answer;
+  let zh = '';
+  if (zhMatch) {
+    en = answer.substring(0, zhMatch.index).trim();
+    zh = zhMatch[1].trim();
+  }
+  return { en, zh };
+}
+
+function formatAnswer(text) {
+  // Simple formatting - highlight key markers
+  return escapeHtml(text)
+    .replace(/🎯/g, '<span style="color:var(--accent);">🎯</span>')
+    .replace(/📊/g, '<span style="color:var(--accent);">📊</span>')
+    .replace(/\n/g, '<br>');
+}
+
+function manualAsk() {
+  // Use the last few subtitle lines as the question
+  const area = document.getElementById('subtitle-area');
+  const lines = area.querySelectorAll('.subtitle-line:not(.interim) .en');
+  if (lines.length === 0) return;
+
+  // Grab last 3 lines
+  const recent = Array.from(lines).slice(-3).map(el => {
+    // Remove timestamp
+    return el.textContent.replace(/^\d{2}:\d{2}:\d{2}/, '').trim();
+  }).join(' ');
+
+  if (recent) {
+    generateAnswer(recent);
+  }
+}
+
+// ===== UTILITY =====
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+function setOpacity(val) {
+  document.documentElement.style.setProperty('--bg-alpha', val / 100);
+}
+
+function clearSubtitles() {
+  const area = document.getElementById('subtitle-area');
+  area.innerHTML = `<div style="color:var(--dim);font-size:12px;text-align:center;padding:20px;">
+    🎤 Listening... Cleared. Speak or let the interviewer speak
+  </div>`;
+}
+
+// Clock
+setInterval(() => {
+  const el = document.getElementById('time-display');
+  if (el) el.textContent = new Date().toLocaleTimeString('en-US', { hour12: false });
+}, 1000);
+</script>
+</body>
+</html>
